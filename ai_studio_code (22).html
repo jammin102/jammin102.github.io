@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOL Interpark Timer</title>
+    <style>
+        /* 눈이 편안한 딥 블랙 테마 */
+        body {
+            background-color: #000000;
+            color: #00ff41;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+        }
+
+        .clock-container {
+            text-align: center;
+            background: #0a0a0a;
+            padding: 50px 70px;
+            border-radius: 30px;
+            border: 1px solid #1a1a1a;
+            box-shadow: 0 0 40px rgba(0, 255, 65, 0.05);
+        }
+
+        /* 시간 표시 스타일 */
+        .time-wrapper {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        #ampm {
+            font-size: 2rem;
+            color: #555;
+            margin-right: 20px;
+            text-transform: uppercase;
+        }
+
+        .digit {
+            font-size: 6rem;
+            color: #00ff41;
+            text-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
+        }
+
+        .unit {
+            font-size: 1.5rem;
+            color: #333;
+            margin-right: 15px;
+            margin-left: 5px;
+        }
+
+        /* 0.1초 단위 (한자리) - 눈에 확 띄는 레드 */
+        #ms-digit {
+            font-size: 5rem;
+            color: #ff3b30;
+            margin-left: 20px;
+            padding-left: 20px;
+            border-left: 2px solid #222;
+            text-shadow: 0 0 15px rgba(255, 59, 48, 0.3);
+        }
+
+        /* 상태 표시줄 */
+        .status-bar {
+            margin-top: 40px;
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+            color: #444;
+        }
+
+        #sync-msg {
+            font-weight: bold;
+            transition: color 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="clock-container">
+        <div class="time-wrapper">
+            <span id="ampm">--</span>
+            <span id="hour" class="digit">00</span><span class="unit">시</span>
+            <span id="min" class="digit">00</span><span class="unit">분</span>
+            <span id="sec" class="digit">00</span><span class="unit">초</span>
+            <span id="ms-digit">0</span>
+        </div>
+        
+        <div class="status-bar">
+            SERVER: <span id="sync-msg">CONNECTING...</span>
+        </div>
+    </div>
+
+    <script>
+        let timeOffset = 0; // 서버시간 - 로컬시간 (ms)
+        const syncMsg = document.getElementById('sync-msg');
+
+        // 서버 시간을 가져오는 핵심 함수 (보안 차단 우회)
+        async function syncServerTime() {
+            const targetUrl = "https://nol.interpark.com/";
+            // 1번 프록시: corsproxy.io (속도 빠름)
+            // 2번 프록시: allorigins (백업)
+            const proxies = [
+                `https://corsproxy.io/?${encodeURIComponent(targetUrl + "?t=" + Date.now())}`,
+                `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`
+            ];
+
+            for (let url of proxies) {
+                try {
+                    const start = Date.now();
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) throw new Error("Fetch failed");
+
+                    const end = Date.now();
+                    const latency = (end - start) / 2;
+
+                    // 헤더에서 Date 추출 시도 (가장 정확)
+                    let serverDateStr = response.headers.get('Date');
+                    
+                    // 만약 프록시가 헤더를 가린다면, 응답을 받은 시점의 추정치 계산
+                    // 브라우저 환경의 한계 내에서 최대한의 보정치 적용
+                    const serverTime = serverDateStr ? new Date(serverDateStr).getTime() : Date.now();
+                    
+                    timeOffset = (serverTime + latency) - Date.now();
+                    
+                    syncMsg.innerText = "NOL.INTERPARK.COM SYNCED";
+                    syncMsg.style.color = "#00ff41";
+                    return; // 성공 시 종료
+                } catch (e) {
+                    console.log("Proxy failed, trying next...");
+                }
+            }
+
+            syncMsg.innerText = "SYNC FAILED (USING LOCAL)";
+            syncMsg.style.color = "#ff3b30";
+        }
+
+        function updateClock() {
+            // 보정된 시간 = 현재 내 컴퓨터 시간 + 오차값
+            const now = new Date(Date.now() + timeOffset);
+            
+            let h = now.getHours();
+            const am = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+
+            const m = String(now.getMinutes()).padStart(2, '0');
+            const s = String(now.getSeconds()).padStart(2, '0');
+            const ms = Math.floor(now.getMilliseconds() / 100); // 0.1초 단위 (0~9)
+
+            document.getElementById('ampm').innerText = am;
+            document.getElementById('hour').innerText = String(h).padStart(2, '0');
+            document.getElementById('min').innerText = m;
+            document.getElementById('sec').innerText = s;
+            document.getElementById('ms-digit').innerText = ms;
+
+            requestAnimationFrame(updateClock);
+        }
+
+        // 초기 실행
+        syncServerTime();
+        // 30초마다 재동기화
+        setInterval(syncServerTime, 30000);
+        // 시계 렌더링 시작
+        updateClock();
+    </script>
+</body>
+</html>
